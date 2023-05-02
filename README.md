@@ -33,7 +33,7 @@ As long as each of the image pairs have the same stem name (i.e. `img1.png` and 
 Our aim is to create an easy to use Lightning implementation of pedestrian open attribute recognition. We will live by:
 
 <p align="center">
-    <img src="POAR.jpg" alt="TEMS Framework Image">
+    <img src="framework.jpg" alt="TEMS Framework Image">
 </p>
 
 ## Citing

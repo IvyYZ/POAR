@@ -1,4 +1,6 @@
 # POAR
+our paper [POAR: Towards Open Vocabulary Pedestrian Attribute Recognition](https://arxiv.org/abs/2303.14643)
+
 # train-TEMS📎
 
 A PyTorch Lightning solution to train pedestrian open attribute recognition models
@@ -37,8 +39,13 @@ Our aim is to create an easy to use Lightning implementation of pedestrian open 
 </p>
 
 ## Citing
-
-
+@inproceedings{Yue2023poar,
+  title={POAR: Towards Open Vocabulary Pedestrian Attribute Recognition},
+  author={Yue Zhang, Suchen Wang, Shichao Kan, Zhenyu Weng, Yigang Cen, and Yappeng Tan},
+  booktitle={In Proceedings of the 31st ACM International Conference on Multimedia (MM ’23), October 29–November 3, Ottawa, ON, Canada.},
+  year={2023},
+  doi={10.1145/3581783.3611719}
+}
 
 ## TODO ✅
 

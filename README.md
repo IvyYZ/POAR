@@ -1,5 +1,5 @@
 # POAR
-our paper [POAR: Towards Open Vocabulary Pedestrian Attribute Recognition](https://arxiv.org/abs/2303.14643)
+Our paper [POAR: Towards Open Vocabulary Pedestrian Attribute Recognition](https://arxiv.org/abs/2303.14643)
 
 # train-TEMS📎
 

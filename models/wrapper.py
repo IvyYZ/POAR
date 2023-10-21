@@ -159,7 +159,7 @@ class CLIPWrapper(pl.LightningModule):
 
 class CustomCLIPWrapper(CLIPWrapper):
     def __init__(self,
-                 #image_encoder,
+                 # image_encoder,
                  text_encoder,
                  minibatch_size,
                  learning_rate=1e-4,
@@ -198,7 +198,7 @@ class CustomCLIPWrapper(CLIPWrapper):
     def get_text_label(self, indices, text1, text_split2, k):
                      
         text_nolap, dictI_gt=self.get_no_overlap_text(text_split2)
-        target_classes,weight=self.get_target_classes(indices, text_nolap, dictI_gt)
+        target_classes=self.get_target_classes(indices, text_nolap, dictI_gt)
         try:
             ground_truth_T,text_nolap_g=self.get_global_sametext(text1) 
         except:
@@ -209,7 +209,7 @@ class CustomCLIPWrapper(CLIPWrapper):
         text_mbs = text_nolap_g.cuda()
         text_nolap_mbs = text_nolap.cuda()
 
-        return text_mbs,text_nolap_mbs,indices,ground_truth_T,target_classes,weight
+        return text_mbs,text_nolap_mbs,indices,ground_truth_T,target_classes
     
     
     def tokenize(self, text):
@@ -268,24 +268,48 @@ class CustomCLIPWrapper(CLIPWrapper):
             indices, text1, text_split2 = self.filter_nontext(tokenized_text,tokenized_text_split, k)
             if len(text1)==0:
                 continue
-            text_mbs,text_nolap_mbs,indices,ground_truth_T,target_classes,weight=self.get_text_label(indices, text1, text_split2, k)
+            text_mbs,text_nolap_mbs,indices,ground_truth_T,target_classes=self.get_text_label(indices, text1, text_split2, k)
             txt = self.encode_text(text_mbs)
             txt = txt / txt.norm(dim=-1, keepdim=True)
 
             txt_nolap = self.encode_text(text_nolap_mbs)
             txt_nolap = txt_nolap / txt_nolap.norm(dim=-1, keepdim=True)
 
+            #Global loss
+            #pdb.set_trace()
+            # image_logits_notemp = image_features[indices][:, k] @ txt.t()
+            # image_logits = image_logits_notemp * self.model.logit_scale.exp()
+            # ground_truth_T = ground_truth_T.type_as(image_logits).long() #[32]
+            # loss_ig1 = F.cross_entropy(image_logits, ground_truth_T)
+            # loss_g += loss_ig1
+            #pdb.set_trace()
+            # MS=MultiSimilarityLoss()
+            
+            # ITfeatures=torch.cat((image_features[indices][:,k],txt),0)
+            # tt=ground_truth_T.cpu().tolist()
+            # for i in range(len(txt)): tt.append(i)
+            # ground_truth_T=torch.tensor(tt).cuda()
+
+            # #pdb.set_trace()
+            # loss_ig=MS(ITfeatures, ground_truth_T,len(txt))
 
             target_classes=target_classes.type_as(image_features).long().cuda()
             src_logits=image_features[indices][:, k] @ txt_nolap.t()
             src_logits = src_logits * self.model.logit_scale.exp()
             
-            loss_ik = self.masked_out_cross_entropy(src_logits, target_classes,weight)
+            loss_ik = self.masked_out_cross_entropy(src_logits, target_classes)
             loss_tk = self.masked_out_cross_entropy(src_logits.t(), target_classes.t())
             
             loss_i += loss_ik
             loss_t += loss_tk
-               
+            # try:
+            #     loss_g += loss_ig
+            # except:
+            #     #pdb.set_trace()
+            #     loss_g=loss_g.cuda()
+            #     loss_g+=loss_ig
+                
+            
             results_t=torch.argmax(src_logits, 0)
             for i in range (len(results_t)):
                 if target_classes[:, i].sum() == 0: continue
@@ -293,12 +317,13 @@ class CustomCLIPWrapper(CLIPWrapper):
                     acc_t+=1
                 cnt_t += 1
 
+            #pdb.set_trace()
             results_i=torch.argmax(src_logits, 1)
             for i in range (len(results_i)):
                 if target_classes[i][int(results_i[i])]==1:
                     acc_i+=1
                 cnt_i += 1
-
+            #"loss_ig:",loss_ig.detach(),
             print(" K:",k, " loss_i:",loss_ik.detach(), " loss_t:",loss_tk.detach(), "acc_i:",acc_i/cnt_i," acc_t:",acc_t/cnt_t,)
         acc_i, acc_t = acc_i / cnt_i, acc_t / cnt_t
         self.log_dict({'part': k,'loss_i': loss_i.detach() / 8,'loss_t': loss_t.detach() / 8, 'acc_i': acc_i ,'acc_t': acc_t}, prog_bar=True)
@@ -328,8 +353,7 @@ class CustomCLIPWrapper(CLIPWrapper):
 
         # x.shape = [batch_size, n_ctx, transformer.width]
         # take features from the eot embedding (eot_token is the highest number in each sequence)
-        #pdb.set_trace()
-        #x = x if teacher else x.type(torch.float16)
+        x = x if teacher else x.type(torch.float16)
         x = x[torch.arange(x.shape[0]), inputs.argmax(dim=-1)] @ self.model.text_projection
         x=x.type(self.dtype)
 
@@ -421,49 +445,25 @@ class CustomCLIPWrapper(CLIPWrapper):
 
         return {'optimizer': optimizer, 'lr_scheduler': lr_scheduler}
 
-
-    #2023.3.16 xiaodui 相同text文本赋予同样的label
+    #2022.6.14 xiaodui 相同text文本赋予同样的label
     def filter_nontext(self, text, text_split, k=0):
         la=[] 
         text_split2=[]
         #过滤空描述的图像文本对 
         indices = []
         text1=[]
-        #for i in range(self.minibatch_size):
-        for i in range(len(text_split[0])):
-            try:  
-                if torch.count_nonzero(text[k][i])>3:  
-      
-                    indices.append(i)
-                    text1.append(text[k][i].unsqueeze(0))
-                    text_split2.append(text_split[k][i])
-            except:
-                pdb.set_trace()
-
-        if len(text1)==0:
-            return indices,text1,text_split2 
-        else:
-            return torch.tensor(indices), torch.cat(text1, dim=0), text_split2
-
-    #2022.6.14 xiaodui 相同text文本赋予同样的label
-    def filter_nontext_0(self, text, text_split, k=0):
-        la=[] 
-        text_split2=[]
-        #过滤空描述的图像文本对 
-        indices = []
-        text1=[]
         for i in range(self.minibatch_size):
-            pdb.set_trace()
             if torch.count_nonzero(text[i][k])>3:          
                 indices.append(i)
                 text1.append(text[i][k].unsqueeze(0))
                 text_split2.append(text_split[i][k])
-        pdb.set_trace()
         if len(text1)==0:
             return indices,text1,text_split2 
         else:
             return torch.tensor(indices), torch.cat(text1, dim=0), text_split2
       
+      
+
     def get_nolap_label_txt(self,txt,T_label,ground_truth_T):
         label_loc={}
         for i in range(len(T_label)):
@@ -602,12 +602,6 @@ class CustomCLIPWrapper(CLIPWrapper):
    
     def get_target_classes(self, indices, text_nolap, dictI_gt):
         target_classes=torch.zeros(len(indices),len(text_nolap))
-        count_class={}
-        weight=torch.ones(len(text_nolap))
-        weight=weight.cuda()
-        for i in range(len(text_nolap)):
-            count_class[i]=0
-
         for key, item in dictI_gt.items():
             t1=int(key.split("_")[1])
             pp=item.split(",")
@@ -616,16 +610,10 @@ class CustomCLIPWrapper(CLIPWrapper):
                     t2=int(ite.split("_")[1])
                     try:
                         target_classes[t1][t2]=1
-                        count_class[t2]+=1
                     except:
                         pdb.set_trace()
-        #根据个数给对应标签加权重
-        #count_class=Counter(list(dictI_gt.values()))
-        maxN=max(list(count_class.values()))
-        for i in range(len(text_nolap)):
-            value=count_class[i]              
-            weight[i]=1/value   
-        return target_classes,weight
+            
+        return target_classes
     
     def get_global_sametext(self,text1):
         dictT_gt={}
@@ -665,43 +653,32 @@ class CustomCLIPWrapper(CLIPWrapper):
         return ground_truth_T,text2
 
 
-    def masked_out_cross_entropy(self, src_logits, target_classes,weight_l_class=None):
+    def masked_out_cross_entropy(self, src_logits, target_classes):
         
         loss = 0
-        #pdb.set_trace()
+        #src_logits, target_classes=src_logits.t(), target_classes.t()
         num_pos = target_classes.sum(dim=-1) #行求和
         # If there is only one active positive label, then this will be ordinary cross entropy        
         #indices = torch.nonzero(num_pos < 2, as_tuple=True)[0]
         indices = torch.nonzero(num_pos==1, as_tuple=True)[0]
-        try:
-            if len(indices)>0:
-                targets_one_pos = torch.argmax(target_classes[indices], dim=-1)
-                #loss += F.cross_entropy(src_logits[indices], targets_one_pos,weight_l_class, reduction="sum")
-                loss += F.cross_entropy(src_logits[indices], targets_one_pos,weight_l_class, reduction="sum")
+        if len(indices)>0:
+            targets_one_pos = torch.argmax(target_classes[indices], dim=-1)
+            loss += F.cross_entropy(src_logits[indices], targets_one_pos, reduction="sum")
 
-            # If there are multiple positive labels, then we compute them one by one. Each time,
-            # the other positive labels are masked out.
-            indices = torch.nonzero(num_pos > 1, as_tuple=True)[0]
-            for i in indices:
-                t = target_classes[i]
-                cnt = sum(t)
-                loss_t = 0
-                for j in torch.nonzero(t):
-                    mask = (t == 0)
-                    mask[j] = True
-                    tgt = t[mask].argmax(dim=-1, keepdim=True)
-                    #pdb.set_trace()
-                    #loss_t += F.cross_entropy(src_logits[i:i+1, mask], tgt,weight_l_class, reduction="sum")
-                    if weight_l_class!=None:
-                        #pdb.set_trace()
-                        loss_t += F.cross_entropy(src_logits[i:i+1, mask], tgt,weight_l_class[mask], reduction="sum")
-                    else:
-                        loss_t += F.cross_entropy(src_logits[i:i+1, mask], tgt, reduction="sum")
-                loss += (loss_t / cnt)
-            #pdb.set_trace()
-            #loss = loss / len(src_logits)
-        except:
-            pdb.set_trace()
+        # If there are multiple positive labels, then we compute them one by one. Each time,
+        # the other positive labels are masked out.
+        indices = torch.nonzero(num_pos > 1, as_tuple=True)[0]
+        for i in indices:
+            t = target_classes[i]
+            cnt = sum(t)
+            loss_t = 0
+            for j in torch.nonzero(t):
+                mask = (t == 0)
+                mask[j] = True
+                tgt = t[mask].argmax(dim=-1, keepdim=True)
+                loss_t += F.cross_entropy(src_logits[i:i+1, mask], tgt, reduction="sum")
+            loss += (loss_t / cnt)
+        loss = loss / len(src_logits)
         return loss
 
     def build_mask(self):
